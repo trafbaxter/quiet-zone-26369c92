@@ -1,5 +1,6 @@
+
 import React, { useState, useEffect } from "react";
-import { DNDSession, Contact } from "@/api/entities";
+import { DNDSession, Contact, User } from "@/api/entities"; // Added User import
 import { Button } from "@/components/ui/button";
 import { Card, CardContent, CardHeader, CardTitle } from "@/components/ui/card";
 import { Badge } from "@/components/ui/badge";
@@ -9,7 +10,7 @@ import {
   Shield, 
   Plus, 
   Clock, 
-  User, 
+  User as UserIcon, // Aliased User to UserIcon to avoid conflict with User entity
   X, 
   Pause, 
   Play,
@@ -27,15 +28,41 @@ export default function Dashboard() {
   const [sessions, setSessions] = useState([]);
   const [contacts, setContacts] = useState([]);
   const [isLoading, setIsLoading] = useState(true);
+  const [isLoggedIn, setIsLoggedIn] = useState(false); // New state for login status
 
   useEffect(() => {
-    loadData();
-    const interval = setInterval(loadData, 30000); // Refresh every 30 seconds
-    return () => clearInterval(interval);
-  }, []);
+    const initializeDashboard = async () => {
+      setIsLoading(true); // Start loading when checking auth
+      try {
+        await User.me(); // Check if user is logged in
+        setIsLoggedIn(true);
+        // If logged in, proceed to load data
+        await loadData(); 
+      } catch (error) {
+        // User is not logged in or session expired
+        console.warn('Authentication check failed:', error);
+        setIsLoggedIn(false);
+        setSessions([]); // Clear any stale data
+        setContacts([]); // Clear any stale data
+        setIsLoading(false); // Stop loading, as data won't be fetched
+      }
+    };
+
+    initializeDashboard();
+
+    // Set up interval for data refresh ONLY if isLoggedIn becomes true
+    let intervalId;
+    if (isLoggedIn) {
+      intervalId = setInterval(loadData, 30000); // Refresh every 30 seconds
+    }
+    return () => {
+      if (intervalId) {
+        clearInterval(intervalId); // Clear interval on component unmount or isLoggedIn change
+      }
+    };
+  }, [isLoggedIn]); // Re-run this effect when isLoggedIn changes
 
   const loadData = async () => {
-    setIsLoading(true);
     try {
       const [sessionsData, contactsData] = await Promise.all([
         DNDSession.list('-created_date'),
@@ -45,8 +72,9 @@ export default function Dashboard() {
       setContacts(contactsData);
     } catch (error) {
       console.error('Error loading data:', error);
+    } finally {
+      setIsLoading(false); // Ensure isLoading is set to false after data fetch attempt
     }
-    setIsLoading(false);
   };
 
   const endSession = async (sessionId) => {
@@ -71,6 +99,48 @@ export default function Dashboard() {
     const startTime = new Date(session.start_time);
     return session.is_active && isAfter(startTime, now);
   }).slice(0, 3);
+
+  if (isLoading) {
+    return (
+      <div className="flex items-center justify-center h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50">
+        <div className="animate-spin rounded-full h-16 w-16 border-b-2 border-blue-600"></div>
+      </div>
+    );
+  }
+
+  if (!isLoggedIn) {
+    return (
+      <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 p-6 flex items-center justify-center">
+        <motion.div
+          initial={{ opacity: 0, y: -20 }}
+          animate={{ opacity: 1, y: 0 }}
+          className="text-center"
+        >
+          <Card className="max-w-md mx-auto bg-white/80 backdrop-blur-xl shadow-2xl border-0">
+            <CardHeader>
+              <div className="w-16 h-16 bg-gradient-to-r from-blue-600 to-purple-600 rounded-2xl flex items-center justify-center shadow-lg mx-auto mb-4">
+                <Shield className="w-8 h-8 text-white" />
+              </div>
+              <CardTitle className="text-3xl font-bold bg-gradient-to-r from-blue-600 to-purple-600 bg-clip-text text-transparent">
+                Welcome to Quiet Zone
+              </CardTitle>
+            </CardHeader>
+            <CardContent>
+              <p className="text-gray-600 mb-8">
+                Your personal space to manage distractions and focus on what matters.
+              </p>
+              <Button
+                onClick={() => User.loginWithRedirect(window.location.href)}
+                className="w-full bg-gradient-to-r from-blue-600 to-purple-600 hover:from-blue-700 hover:to-purple-700 shadow-lg text-lg py-6"
+              >
+                Log In to Continue
+              </Button>
+            </CardContent>
+          </Card>
+        </motion.div>
+      </div>
+    );
+  }
 
   return (
     <div className="min-h-screen bg-gradient-to-br from-gray-50 via-white to-gray-50 p-6">
@@ -189,7 +259,7 @@ export default function Dashboard() {
                       <CardContent className="p-4">
                         <div className="flex items-center gap-3">
                           <div className="w-10 h-10 bg-gradient-to-r from-blue-100 to-purple-100 rounded-full flex items-center justify-center">
-                            <User className="w-5 h-5 text-blue-600" />
+                            <UserIcon className="w-5 h-5 text-blue-600" /> {/* Using aliased UserIcon */}
                           </div>
                           <div className="flex-1">
                             <p className="font-medium text-gray-900">{session.contact_name}</p>
